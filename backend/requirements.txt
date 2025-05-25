@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+celery
+redis
+scikit-learn
+python-multipart
+pandas
+joblib
