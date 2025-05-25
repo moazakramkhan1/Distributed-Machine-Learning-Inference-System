@@ -50,7 +50,7 @@ const UploadForm = () => {
 
         try {
             setLoading(true);
-            const res = await axios.post("http://localhost:8000/predict/", formData);
+            const res = await axios.post(`${import.meta.env.VITE_API_URL}/predict/`, formData);
             setPredictions(res.data.predictions);
         } catch (err) {
             setError("Backend error: " + err.message);

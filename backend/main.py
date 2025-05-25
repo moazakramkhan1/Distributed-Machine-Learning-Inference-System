@@ -4,6 +4,8 @@ from tasks import run_inference
 import io
 import joblib
 from fastapi.middleware.cors import CORSMiddleware
+from model.train_model import train_model_from_df
+
 
 app = FastAPI()
 model = joblib.load("model/model.pkl")
