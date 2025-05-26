@@ -1,15 +1,11 @@
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, UploadFile, Form, HTTPException
 import pandas as pd
 from tasks import run_inference
 import io
-import joblib
 from fastapi.middleware.cors import CORSMiddleware
 from model.train_model import train_model_from_df
 
-
 app = FastAPI()
-model = joblib.load("model/model.pkl")
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,11 +14,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.post("/predict/")
 async def predict(file: UploadFile):
     df = pd.read_csv(io.StringIO((await file.read()).decode()))
-    # Split into chunks if needed
     chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, len(df), 10)]
     tasks = [run_inference.delay(chunk) for chunk in chunks]
     results = [task.get() for task in tasks]

@@ -28,10 +28,15 @@ services:
       - redis
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend/my-ml-frontend
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
+
     volumes:
-      - ./frontend:/app
+      - ./frontend/my-ml-frontend:/app
+      - /app/node_modules
+    working_dir: /app
     env_file:
-      - ./frontend/.env
+      - ./frontend/my-ml-frontend/.env
