@@ -1,81 +1,107 @@
-import React, { useState } from 'react';
-import axios from 'axios';
-import Papa from 'papaparse';
+// File: src/components/TrainForm.jsx
+import React, { useState } from "react";
+import {
+    Box,
+    Button,
+    InputLabel,
+    MenuItem,
+    FormControl,
+    Select,
+    TextField,
+    Snackbar,
+    Alert,
+    Typography,
+    Paper,
+} from "@mui/material";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 
-const TrainForm = () => {
+export default function TrainForm() {
     const [file, setFile] = useState(null);
-    const [columns, setColumns] = useState([]);
-    const [targetColumn, setTargetColumn] = useState("");
-    const [message, setMessage] = useState("");
-    const [error, setError] = useState("");
-
-    const handleFileChange = (e) => {
-        const uploaded = e.target.files[0];
-        setFile(uploaded);
-        setError("");
-        setMessage("");
-        setTargetColumn("");
-
-        Papa.parse(uploaded, {
-            header: true,
-            complete: (results) => {
-                const colNames = results.meta.fields;
-                setColumns(colNames);
-            },
-            error: () => setError("Failed to parse CSV file."),
-        });
-    };
+    const [target, setTarget] = useState("");
+    const [modelType, setModelType] = useState("random_forest");
+    const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
 
     const handleSubmit = async () => {
-        if (!file || !targetColumn) {
-            setError("Please select a CSV file and a target column.");
+        if (!file || !target) {
+            setSnackbar({ open: true, message: "Please upload a file and specify the target column.", severity: "error" });
             return;
         }
 
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("target_column", targetColumn);
+        formData.append("target_column", target);
+        formData.append("model_type", modelType);
 
         try {
-            const res = await axios.post(`${import.meta.env.VITE_API_URL}/train/`, formData);
-            setMessage(res.data.message);
+            const response = await fetch("/train", {
+                method: "POST",
+                body: formData,
+            });
+            const result = await response.json();
+
+            if (!response.ok) throw new Error(result.detail || "Training failed");
+
+            setSnackbar({ open: true, message: result.message, severity: "success" });
         } catch (err) {
-            setError(err.response?.data?.detail || "Training failed.");
+            setSnackbar({ open: true, message: err.message, severity: "error" });
         }
     };
 
     return (
-        <div style={{ marginTop: "40px" }}>
-            <h2>Upload CSV to Train Model</h2>
-            <input type="file" accept=".csv" onChange={handleFileChange} />
+        <Paper sx={{ p: 3 }} elevation={4}>
+            <Typography variant="h6" gutterBottom>
+                Train New Model
+            </Typography>
+            <Box display="flex" flexDirection="column" gap={2}>
+                <Button variant="contained" component="label" startIcon={<CloudUploadIcon />}>
+                    Upload CSV
+                    <input type="file" accept=".csv" hidden onChange={(e) => setFile(e.target.files[0])} />
+                </Button>
 
-            {columns.length > 0 && (
-                <>
-                    <p style={{ marginTop: "10px" }}>📊 Detected columns: {columns.join(", ")}</p>
-                    <label style={{ marginTop: "10px", display: "block" }}>
-                        Select target column:
-                        <select
-                            value={targetColumn}
-                            onChange={(e) => setTargetColumn(e.target.value)}
-                            style={{ marginLeft: "10px" }}
-                        >
-                            <option value="">-- Choose --</option>
-                            {columns.map((col, idx) => (
-                                <option key={idx} value={col}>{col}</option>
-                            ))}
-                        </select>
-                    </label>
-                </>
-            )}
+                <TextField
+                    label="Target Column"
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value)}
+                    fullWidth
+                />
 
-            <button onClick={handleSubmit} style={{ marginTop: "15px" }}>
-                Train Model
-            </button>
+                <FormControl fullWidth>
+                    <InputLabel>Model Type</InputLabel>
+                    <Select
+                        value={modelType}
+                        label="Model Type"
+                        onChange={(e) => setModelType(e.target.value)}
+                    >
+                        <MenuItem value="random_forest">Random Forest</MenuItem>
+                        <MenuItem value="logistic_regression">Logistic Regression</MenuItem>
+                        <MenuItem value="svm">SVM</MenuItem>
+                    </Select>
+                </FormControl>
 
-            {message && <p style={{ color: "green" }}>{message}</p>}
-            {error && <p style={{ color: "red" }}>{error}</p>}
-        </div>
+                <Button variant="contained" color="primary" onClick={handleSubmit}>
+                    Train Model
+                </Button>
+
+                <Button
+                    variant="outlined"
+                    color="secondary"
+                    href="/download-model"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    Download Trained Model
+                </Button>
+            </Box>
+
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={6000}
+                onClose={() => setSnackbar({ ...snackbar, open: false })}
+            >
+                <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%' }}>
+                    {snackbar.message}
+                </Alert>
+            </Snackbar>
+        </Paper>
     );
-};
-
-export default TrainForm;
+}
