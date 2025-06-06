@@ -46,7 +46,6 @@ async def train(
     return {
         "message": f"✅ Model trained successfully using '{target_column}' as target.",
         "model_type": model_type,
-        "download_url": "/download-model/"
     }
 
 @app.get("/download-model/")

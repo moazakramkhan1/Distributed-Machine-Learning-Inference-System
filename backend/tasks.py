@@ -8,7 +8,7 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 MODEL_PATH = os.getenv("MODEL_PATH", "model/model.pkl")
 
 # Create Celery app
-app = Celery("tasks", broker=CELERY_BROKER_URL)
+app = Celery("tasks", broker=CELERY_BROKER_URL,backend=CELERY_BROKER_URL)
 
 # Lazy model cache
 _model = None

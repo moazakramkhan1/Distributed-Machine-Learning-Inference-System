@@ -1,9 +1,10 @@
-// File: src/App.jsx
 import React from "react";
+import { useState } from "react";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { Container, Typography, Box, AppBar, Toolbar, CssBaseline } from "@mui/material";
-import TrainForm from "./components/TrainForm";
-import PredictForm from "./components/PredictForm";
+import PredictForm from './components/PredictFrom'
+import TrainForm from './components/TrainForm'
+
 
 const darkTheme = createTheme({
   palette: {
@@ -19,6 +20,7 @@ const darkTheme = createTheme({
 });
 
 export default function App() {
+  const [training,setTraining] = useState(false)
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
@@ -30,9 +32,9 @@ export default function App() {
         </AppBar>
 
         <Container maxWidth="md" sx={{ mt: 4 }}>
-          <TrainForm />
+          <TrainForm  onTrainingSuccess={() => setTraining(true)}/>
           <Box my={4} />
-          <PredictForm />
+          { training && <PredictForm />}
         </Container>
       </Box>
     </ThemeProvider>

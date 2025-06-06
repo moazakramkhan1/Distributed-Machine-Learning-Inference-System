@@ -1,107 +1,125 @@
-// File: src/components/TrainForm.jsx
 import React, { useState } from "react";
 import {
-    Box,
-    Button,
-    InputLabel,
-    MenuItem,
-    FormControl,
-    Select,
-    TextField,
-    Snackbar,
-    Alert,
-    Typography,
-    Paper,
+  Box,
+  Button,
+  Typography,
+  TextField,
+  MenuItem,
+  Snackbar,
+  Alert,
+  CircularProgress,
 } from "@mui/material";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import axios from "axios";
 
-export default function TrainForm() {
-    const [file, setFile] = useState(null);
-    const [target, setTarget] = useState("");
-    const [modelType, setModelType] = useState("random_forest");
-    const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+const modelOptions = [
+  { value: "random_forest", label: "Random Forest" },
+  { value: "logistic_regression", label: "Logistic Regression" },
+  { value: "svm", label: "SVM" },
+];
 
-    const handleSubmit = async () => {
-        if (!file || !target) {
-            setSnackbar({ open: true, message: "Please upload a file and specify the target column.", severity: "error" });
-            return;
-        }
+export default function TrainForm({onTrainingSuccess}) {
+  const [file, setFile] = useState(null);
+  const [targetColumn, setTargetColumn] = useState("");
+  const [modelType, setModelType] = useState("RandomForestClassifier");
+  const [message, setMessage] = useState("");
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [trainingSuccess, setTrainingSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("target_column", target);
-        formData.append("model_type", modelType);
+  const handleTrain = async () => {
+    setLoading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("target_column", targetColumn);
+    formData.append("model_type", modelType);
 
-        try {
-            const response = await fetch("/train", {
-                method: "POST",
-                body: formData,
-            });
-            const result = await response.json();
+    try {
+      const response = await axios.post("http://localhost:8000/train", formData);
+      setMessage(response.data.message || "✅ Model trained.");
+      setTrainingSuccess(true);
+      onTrainingSuccess?.();
+    } catch (error) {
+      console.error("Train error:", error);
+      if (error.response?.data?.detail) {
+        setMessage("❌ " + error.response.data.detail);
+      } else {
+        setMessage("❌ Failed to train model.");
+      }
+    } finally {
+      setLoading(false);
+      setSnackbarOpen(true);
+    }
+  };
 
-            if (!response.ok) throw new Error(result.detail || "Training failed");
+  return (
+    <Box>
+      <Typography variant="h5" gutterBottom>Train Model</Typography>
+      <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files[0])} />
+      <TextField
+        label="Target Column"
+        value={targetColumn}
+        onChange={(e) => setTargetColumn(e.target.value)}
+        fullWidth
+        margin="normal"
+      />
+      <TextField
+        select
+        label="Model Type"
+        value={modelType}
+        onChange={(e) => setModelType(e.target.value)}
+        fullWidth
+        margin="normal"
+      >
+        {modelOptions.map((option) => (
+          <MenuItem key={option.value} value={option.value}>
+            {option.label}
+          </MenuItem>
+        ))}
+      </TextField>
 
-            setSnackbar({ open: true, message: result.message, severity: "success" });
-        } catch (err) {
-            setSnackbar({ open: true, message: err.message, severity: "error" });
-        }
-    };
+      <Box sx={{ position: "relative", display: "inline-flex", mt: 2 }}>
+        <Button
+          variant="contained"
+          onClick={handleTrain}
+          disabled={loading}
+        >
+          Train
+        </Button>
+        {loading && (
+          <CircularProgress
+            size={24}
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              marginTop: "-12px",
+              marginLeft: "-12px",
+            }}
+          />
+        )}
+      </Box>
 
-    return (
-        <Paper sx={{ p: 3 }} elevation={4}>
-            <Typography variant="h6" gutterBottom>
-                Train New Model
-            </Typography>
-            <Box display="flex" flexDirection="column" gap={2}>
-                <Button variant="contained" component="label" startIcon={<CloudUploadIcon />}>
-                    Upload CSV
-                    <input type="file" accept=".csv" hidden onChange={(e) => setFile(e.target.files[0])} />
-                </Button>
+      {trainingSuccess && !loading && (
+        <Button
+          variant="contained"
+          color="secondary"
+          href="http://localhost:8000/download-model"
+          sx={{ mt: 2, ml: 2 }}
+          download
+        >
+          Download Trained Model
+        </Button>
+      )}
 
-                <TextField
-                    label="Target Column"
-                    value={target}
-                    onChange={(e) => setTarget(e.target.value)}
-                    fullWidth
-                />
-
-                <FormControl fullWidth>
-                    <InputLabel>Model Type</InputLabel>
-                    <Select
-                        value={modelType}
-                        label="Model Type"
-                        onChange={(e) => setModelType(e.target.value)}
-                    >
-                        <MenuItem value="random_forest">Random Forest</MenuItem>
-                        <MenuItem value="logistic_regression">Logistic Regression</MenuItem>
-                        <MenuItem value="svm">SVM</MenuItem>
-                    </Select>
-                </FormControl>
-
-                <Button variant="contained" color="primary" onClick={handleSubmit}>
-                    Train Model
-                </Button>
-
-                <Button
-                    variant="outlined"
-                    color="secondary"
-                    href="/download-model"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >
-                    Download Trained Model
-                </Button>
-            </Box>
-
-            <Snackbar
-                open={snackbar.open}
-                autoHideDuration={6000}
-                onClose={() => setSnackbar({ ...snackbar, open: false })}
-            >
-                <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%' }}>
-                    {snackbar.message}
-                </Alert>
-            </Snackbar>
-        </Paper>
-    );
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={() => setSnackbarOpen(false)}
+      >
+        <Alert onClose={() => setSnackbarOpen(false)} severity="info">
+          {message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
 }
