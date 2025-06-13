@@ -26,8 +26,10 @@ def get_model():
 def run_inference(data_chunk):
     try:
         df = pd.DataFrame(data_chunk)
+        print("📦 Received data chunk:", df.head())  # 👈 Debug
         model = get_model()
         predictions = model.predict(df)
+        print("✅ Predictions made:", predictions[:5])  # 👈 Debug
         return predictions.tolist()
     except Exception as e:
         print(f"❌ Inference failed: {e}")

@@ -6,6 +6,7 @@ import os
 from tasks import run_inference
 from fastapi.middleware.cors import CORSMiddleware
 from model.train_model import train_model_from_df
+import uuid
 
 app = FastAPI()
 
@@ -19,10 +20,35 @@ app.add_middleware(
 @app.post("/predict/")
 async def predict(file: UploadFile):
     df = pd.read_csv(io.StringIO((await file.read()).decode()))
+
     chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, len(df), 10)]
     tasks = [run_inference.delay(chunk) for chunk in chunks]
-    results = [task.get() for task in tasks]
-    return {"predictions": sum(results, [])}
+
+    results = []
+    for task in tasks:
+        task_result = task.get()
+        if isinstance(task_result, dict) and "error" in task_result:
+            raise HTTPException(status_code=500, detail=task_result["error"])
+        elif isinstance(task_result, list):
+            results.extend(task_result)
+        else:
+            raise HTTPException(status_code=500, detail="Unexpected task result format.")
+
+    if len(results) != len(df):
+        raise HTTPException(status_code=500, detail="Mismatch between predictions and input rows.")
+
+    # ✅ Append predictions and save
+    df["prediction"] = results
+
+    prediction_id = str(uuid.uuid4())
+    output_path = f"predictions/{prediction_id}.csv"
+    os.makedirs("predictions", exist_ok=True)
+    df.to_csv(output_path, index=False)
+
+    return {
+        "message": "✅ Predictions generated.",
+        "prediction_file": prediction_id
+    }
 
 @app.post("/train/")
 async def train(
@@ -54,3 +80,22 @@ async def download_model():
     if not os.path.exists(model_path):
         raise HTTPException(status_code=404, detail="Model file not found. Train a model first.")
     return FileResponse(path=model_path, filename="trained_model.pkl", media_type="application/octet-stream")
+
+@app.get("/download-predictions/{file_id}")
+async def download_predictions(file_id: str):
+    file_path = f"predictions/{file_id}.csv"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Prediction file not found.")
+    return FileResponse(file_path, filename="predictions.csv", media_type="text/csv")
+
+@app.delete("/cleanup/{file_id}")
+async def delete_files(file_id: str):
+    pred_file = f"predictions/{file_id}.csv"
+    model_file = "model/model.pkl"  # You can make this user-specific if needed
+
+    if os.path.exists(pred_file):
+        os.remove(pred_file)
+    if os.path.exists(model_file):
+        os.remove(model_file)
+
+    return {"message": "🗑️ Model and predictions deleted."}
