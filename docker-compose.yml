@@ -6,29 +6,19 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      ./backend
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
       - ./backend/model:/app/model
       - /var/run/docker.sock:/var/run/docker.sock
-    env_file:
-      - .env
+    environment:
+      - MODEL_PATH=${MODEL_PATH:-/app/model/model.pkl}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}
     depends_on:
       - redis
-  worker:
-    build: ./backend
-    command: sh -c 'while [ ! -f model/model.pkl ]; do echo "⏳ Waiting for model..."; sleep 2; done; celery -A tasks worker --loglevel=info'
-    volumes:
-      - ./backend:/app
-      - ./backend/model:/app/model
-    env_file:
-      - .env
-    depends_on:
-      - redis
-
+      
   frontend:
     build:
       context: ./frontend/my-ml-frontend
@@ -40,5 +30,6 @@ services:
       - ./frontend/my-ml-frontend:/app
       - /app/node_modules
     working_dir: /app
-    env_file:
-      - ./frontend/my-ml-frontend/.env
+    environment:
+      - MODEL_PATH=${MODEL_PATH:-/app/model/model.pkl}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/0}

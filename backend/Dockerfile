@@ -14,14 +14,18 @@ RUN curl -SL https://github.com/docker/compose/releases/download/v2.23.3/docker-
     chmod +x /usr/local/bin/docker-compose && \
     ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
 
+# Create a non-root user for optional production use
+RUN groupadd -r appuser && useradd -m -r -g appuser appuser && \
+    chown -R appuser:appuser /app
+
 # Copy backend code
 COPY . .
 
-# Copy docker-compose.yml (assumes build context is the parent folder)
-
-
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Uncomment this line to run as non-root (optional for production)
+# USER appuser
 
 # Start FastAPI app
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
