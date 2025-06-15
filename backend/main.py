@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, Form, HTTPException
+from fastapi import FastAPI, UploadFile, Form, HTTPException, File
 from fastapi.responses import FileResponse
 import pandas as pd
 import io
@@ -47,7 +47,7 @@ async def predict(file: UploadFile):
     desired_workers = max(1, min((num_rows // 1000) + 1, 10))  # scale between 1 and 10
 
     try:
-        subprocess.run(["docker-compose", "up", "--scale", f"worker={desired_workers}", "-d"], check=True)  
+        subprocess.run(["docker-compose", "up", "--scale", f"worker={desired_workers}", "-d", "worker"], check=True)  
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=f"Scaling failed: {e}")
 

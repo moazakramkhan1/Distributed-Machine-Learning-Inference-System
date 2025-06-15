@@ -9,7 +9,7 @@ import {
 } from "@mui/material";
 import axios from "axios";
 
-export default function UploadModelForm() {
+export default function UploadModelForm({ onTrainingSuccess }) {
   const [file, setFile] = useState(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -25,6 +25,7 @@ export default function UploadModelForm() {
     try {
       const response = await axios.post("http://localhost:8000/upload-model/", formData);
       setMessage(response.data.message || "✅ Model uploaded.");
+      onTrainingSuccess?.();
     } catch (error) {
       console.error("Upload error:", error);
       if (error.response?.data?.detail) {

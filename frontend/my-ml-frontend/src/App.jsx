@@ -33,7 +33,7 @@ export default function App() {
         </AppBar>
 
         <Container maxWidth="md" sx={{ mt: 4 }}>
-          <UploadModelForm />
+          <UploadModelForm onTrainingSuccess={() => setTraining(true)}/>
           <Box my={4} />
           <TrainForm onTrainingSuccess={() => setTraining(true)} />
           <Box my={4} />
