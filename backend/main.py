@@ -7,6 +7,9 @@ from tasks import run_inference
 from fastapi.middleware.cors import CORSMiddleware
 from model.train_model import train_model_from_df
 import uuid
+import redis
+import subprocess
+import shutil
 
 app = FastAPI()
 
@@ -16,12 +19,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.post("/upload-model/")
+async def upload_model_file(model_file: UploadFile = File(...)):
+    if not model_file.filename.endswith(".pkl"):
+        raise HTTPException(status_code=400, detail="Only .pkl files are allowed.")
 
+    model_path = "model/model.pkl"
+    os.makedirs("model", exist_ok=True)
+
+    try:
+        with open(model_path, "wb") as buffer:
+            shutil.copyfileobj(model_file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save model: {e}")
+
+    return {"message": "✅ Model uploaded and saved to model directory."}
+
+
+    
 @app.post("/predict/")
 async def predict(file: UploadFile):
+    # Step 1: Read file
     df = pd.read_csv(io.StringIO((await file.read()).decode()))
 
-    chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, len(df), 10)]
+    # Step 2: Dynamically scale workers (manual scaling logic)
+    num_rows = len(df)
+    desired_workers = max(1, min((num_rows // 1000) + 1, 10))  # scale between 1 and 10
+
+    try:
+        subprocess.run(["docker-compose", "up", "--scale", f"worker={desired_workers}", "-d"], check=True)  
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"Scaling failed: {e}")
+
+    # Step 3: Split into chunks and send to Celery
+    chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, num_rows, 10)]
     tasks = [run_inference.delay(chunk) for chunk in chunks]
 
     results = []
@@ -34,21 +65,10 @@ async def predict(file: UploadFile):
         else:
             raise HTTPException(status_code=500, detail="Unexpected task result format.")
 
-    if len(results) != len(df):
+    if len(results) != num_rows:
         raise HTTPException(status_code=500, detail="Mismatch between predictions and input rows.")
 
-    # ✅ Append predictions and save
-    df["prediction"] = results
-
-    prediction_id = str(uuid.uuid4())
-    output_path = f"predictions/{prediction_id}.csv"
-    os.makedirs("predictions", exist_ok=True)
-    df.to_csv(output_path, index=False)
-
-    return {
-        "message": "✅ Predictions generated.",
-        "prediction_file": prediction_id
-    }
+    # Step 4: Save CSV with predictions
 
 @app.post("/train/")
 async def train(
@@ -99,3 +119,4 @@ async def delete_files(file_id: str):
         os.remove(model_file)
 
     return {"message": "🗑️ Model and predictions deleted."}
+

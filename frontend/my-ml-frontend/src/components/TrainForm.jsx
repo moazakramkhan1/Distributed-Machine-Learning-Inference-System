@@ -15,6 +15,8 @@ const modelOptions = [
   { value: "random_forest", label: "Random Forest" },
   { value: "logistic_regression", label: "Logistic Regression" },
   { value: "svm", label: "SVM" },
+  { value: "linear_regression", label: "Linear Regression" },
+  { value: "decision_tree", label: "Decision Tree" },
 ];
 
 export default function TrainForm({onTrainingSuccess}) {

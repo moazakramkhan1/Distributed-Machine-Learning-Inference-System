@@ -4,6 +4,7 @@ import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { Container, Typography, Box, AppBar, Toolbar, CssBaseline } from "@mui/material";
 import PredictForm from './components/PredictFrom'
 import TrainForm from './components/TrainForm'
+import UploadModelForm from './components/UploadModelForm';
 
 
 const darkTheme = createTheme({
@@ -32,11 +33,14 @@ export default function App() {
         </AppBar>
 
         <Container maxWidth="md" sx={{ mt: 4 }}>
-          <TrainForm  onTrainingSuccess={() => setTraining(true)}/>
+          <UploadModelForm />
           <Box my={4} />
-          { training && <PredictForm />}
+          <TrainForm onTrainingSuccess={() => setTraining(true)} />
+          <Box my={4} />
+          {training && <PredictForm />}
         </Container>
       </Box>
     </ThemeProvider>
   );
 }
+

@@ -6,8 +6,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 
 def train_model_from_df(df, target_column="label", model_type="random_forest", model_path="model/model.pkl"):
     # Ensure model directory exists
@@ -45,6 +46,10 @@ def train_model_from_df(df, target_column="label", model_type="random_forest", m
         model = LogisticRegression(max_iter=1000)
     elif model_type == "svm":
         model = SVC()
+    elif model_type == "decision_tree":
+        model = DecisionTreeClassifier(random_state=42)
+    elif model_type == "linear_regression":
+        model = LinearRegression()
     else:
         raise ValueError(f"❌ Unsupported model type: {model_type}")
 
