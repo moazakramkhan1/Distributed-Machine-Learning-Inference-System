@@ -88,7 +88,7 @@ async def predict(file: UploadFile):
 
         results = []
         for task in tasks:
-            task_result = task.get(timeout=30)
+            task_result = task.get(timeout=120)
             if isinstance(task_result, dict) and "error" in task_result:
                 raise HTTPException(status_code=500, detail=task_result["error"])
             elif isinstance(task_result, list):
