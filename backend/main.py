@@ -1,17 +1,21 @@
 from fastapi import FastAPI, UploadFile, Form, HTTPException, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import pandas as pd
 import io
 import os
-from tasks import run_inference
 from fastapi.middleware.cors import CORSMiddleware
 from model.train_model import train_model_from_df
-import uuid
+from uuid import uuid4
 import redis
-import subprocess
 import shutil
+from celery.result import AsyncResult
+from celery.app.control import Inspect
+from tasks import app as celery_app, run_inference
+import time
 
 app = FastAPI()
+
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,6 +23,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+WORKER_READY_TIMEOUT = 60  # seconds
+WORKER_READY_POLL_INTERVAL = 2  # seconds
+
+PREDICTION_DIR = "/app/predictions"
+os.makedirs(PREDICTION_DIR, exist_ok=True)
+
+redis_client = redis.Redis(host="redis", port=6379, decode_responses=True)
+
 @app.post("/upload-model/")
 async def upload_model_file(model_file: UploadFile = File(...)):
     if not model_file.filename.endswith(".pkl"):
@@ -37,39 +50,71 @@ async def upload_model_file(model_file: UploadFile = File(...)):
 
 
     
-@app.post("/predict/")
+def get_active_worker_count():
+    inspect: Inspect = celery_app.control.inspect()
+    active_workers = inspect.ping()  # returns dict of worker names -> pong
+    return len(active_workers) if active_workers else 0
+
+def wait_for_workers(expected_count: int, timeout: int = WORKER_READY_TIMEOUT):
+    start = time.time()
+    while time.time() - start < timeout:
+        current = get_active_worker_count()
+        print(f"⏳ Waiting for workers... {current}/{expected_count} ready")
+        if current >= expected_count:
+            print("✅ All workers are ready.")
+            return True
+        time.sleep(WORKER_READY_POLL_INTERVAL)
+    return False
+
+# === Updated Predict Function ===
+
+@app.post("/predict")
 async def predict(file: UploadFile):
-    # Step 1: Read file
-    df = pd.read_csv(io.StringIO((await file.read()).decode()))
-
-    # Step 2: Dynamically scale workers (manual scaling logic)
-    num_rows = len(df)
-    desired_workers = max(1, min((num_rows // 1000) + 1, 10))  # scale between 1 and 10
-
     try:
-        subprocess.run(["docker-compose", "up", "--scale", f"worker={desired_workers}", "-d", "worker"], check=True)  
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"Scaling failed: {e}")
+        df = pd.read_csv(io.StringIO((await file.read()).decode()))
+        num_rows = len(df)
 
-    # Step 3: Split into chunks and send to Celery
-    chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, num_rows, 10)]
-    tasks = [run_inference.delay(chunk) for chunk in chunks]
+        # Step 1: Compute worker count and trigger scaling
+        desired_workers = max(1, min((num_rows // 1000) + 1, 10))
+        redis_client.set("scale:worker_count", desired_workers)
 
-    results = []
-    for task in tasks:
-        task_result = task.get()
-        if isinstance(task_result, dict) and "error" in task_result:
-            raise HTTPException(status_code=500, detail=task_result["error"])
-        elif isinstance(task_result, list):
-            results.extend(task_result)
-        else:
-            raise HTTPException(status_code=500, detail="Unexpected task result format.")
+        # Step 2: Wait for Celery workers to be ready
+        if not wait_for_workers(desired_workers):
+            raise HTTPException(status_code=500, detail="❌ Worker startup timeout. Try again later.")
 
-    if len(results) != num_rows:
-        raise HTTPException(status_code=500, detail="Mismatch between predictions and input rows.")
+        # Step 3: Split work and dispatch tasks
+        chunks = [df.iloc[i:i + 10].to_dict(orient='records') for i in range(0, num_rows, 10)]
+        tasks = [run_inference.delay(chunk) for chunk in chunks]
 
-    # Step 4: Save CSV with predictions
+        results = []
+        for task in tasks:
+            task_result = task.get(timeout=30)
+            if isinstance(task_result, dict) and "error" in task_result:
+                raise HTTPException(status_code=500, detail=task_result["error"])
+            elif isinstance(task_result, list):
+                results.extend(task_result)
+            else:
+                raise HTTPException(status_code=500, detail="Unexpected task result format.")
 
+        if len(results) != num_rows:
+            raise HTTPException(status_code=500, detail="Mismatch between predictions and input rows.")
+
+        # Step 4: Save predictions
+        output_df = df.copy()
+        output_df["prediction"] = results
+        file_id = str(uuid4())
+        output_path = os.path.join(PREDICTION_DIR, f"{file_id}.csv")
+        output_df.to_csv(output_path, index=False)
+
+        return JSONResponse(content={
+            "message": "✅ Predictions complete. Ready to download.",
+            "prediction_file": file_id,
+            "predictions": results[:5]  # Optional preview
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.post("/train/")
 async def train(
     file: UploadFile,
