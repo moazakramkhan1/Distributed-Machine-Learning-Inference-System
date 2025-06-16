@@ -1,14 +1,13 @@
 from fastapi import FastAPI, UploadFile, Form, HTTPException, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import pandas as pd
 import io
 import os
 from tasks import run_inference
 from fastapi.middleware.cors import CORSMiddleware
 from model.train_model import train_model_from_df
-import uuid
+from uuid import uuid4
 import redis
-import subprocess
 import shutil
 
 app = FastAPI()
@@ -19,6 +18,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+PREDICTION_DIR = "/app/predictions"
+os.makedirs(PREDICTION_DIR, exist_ok=True)
+
+redis_client = redis.Redis(host="redis", port=6379, decode_responses=True)
+
 @app.post("/upload-model/")
 async def upload_model_file(model_file: UploadFile = File(...)):
     if not model_file.filename.endswith(".pkl"):
@@ -37,39 +42,52 @@ async def upload_model_file(model_file: UploadFile = File(...)):
 
 
     
-@app.post("/predict/")
+@app.post("/predict")
 async def predict(file: UploadFile):
-    # Step 1: Read file
-    df = pd.read_csv(io.StringIO((await file.read()).decode()))
-
-    # Step 2: Dynamically scale workers (manual scaling logic)
-    num_rows = len(df)
-    desired_workers = max(1, min((num_rows // 1000) + 1, 10))  # scale between 1 and 10
-
     try:
-        subprocess.run(["docker-compose", "up", "--scale", f"worker={desired_workers}", "-d", "worker"], check=True)  
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"Scaling failed: {e}")
+        # Step 1: Read CSV
+        df = pd.read_csv(io.StringIO((await file.read()).decode()))
+        num_rows = len(df)
 
-    # Step 3: Split into chunks and send to Celery
-    chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, num_rows, 10)]
-    tasks = [run_inference.delay(chunk) for chunk in chunks]
+        # Step 2: Compute desired workers (bounded)
+        desired_workers = max(1, min((num_rows // 1000) + 1, 10))
 
-    results = []
-    for task in tasks:
-        task_result = task.get()
-        if isinstance(task_result, dict) and "error" in task_result:
-            raise HTTPException(status_code=500, detail=task_result["error"])
-        elif isinstance(task_result, list):
-            results.extend(task_result)
-        else:
-            raise HTTPException(status_code=500, detail="Unexpected task result format.")
+        # Step 3: Write scale request to Redis
+        redis_client.set("scale:worker_count", desired_workers)
 
-    if len(results) != num_rows:
-        raise HTTPException(status_code=500, detail="Mismatch between predictions and input rows.")
+        # Step 4: Dispatch inference tasks in chunks
+        chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, num_rows, 10)]
+        tasks = [run_inference.delay(chunk) for chunk in chunks]
 
-    # Step 4: Save CSV with predictions
+        results = []
+        for task in tasks:
+            task_result = task.get(timeout=30)
+            if isinstance(task_result, dict) and "error" in task_result:
+                raise HTTPException(status_code=500, detail=task_result["error"])
+            elif isinstance(task_result, list):
+                results.extend(task_result)
+            else:
+                raise HTTPException(status_code=500, detail="Unexpected task result format.")
 
+        if len(results) != num_rows:
+            raise HTTPException(status_code=500, detail="Mismatch between predictions and input rows.")
+
+        # Step 5: Save predictions to file
+        output_df = df.copy()
+        output_df["prediction"] = results
+        file_id = str(uuid4())
+        output_path = os.path.join(PREDICTION_DIR, f"{file_id}.csv")
+        output_df.to_csv(output_path, index=False)
+
+        return JSONResponse(content={
+            "message": "✅ Predictions complete. Ready to download.",
+            "prediction_file": file_id,
+            "predictions": results[:5]  # Preview
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.post("/train/")
 async def train(
     file: UploadFile,
