@@ -3,14 +3,19 @@ from fastapi.responses import FileResponse, JSONResponse
 import pandas as pd
 import io
 import os
-from tasks import run_inference
 from fastapi.middleware.cors import CORSMiddleware
 from model.train_model import train_model_from_df
 from uuid import uuid4
 import redis
 import shutil
+from celery.result import AsyncResult
+from celery.app.control import Inspect
+from tasks import app as celery_app, run_inference
+import time
 
 app = FastAPI()
+
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +23,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+WORKER_READY_TIMEOUT = 60  # seconds
+WORKER_READY_POLL_INTERVAL = 2  # seconds
 
 PREDICTION_DIR = "/app/predictions"
 os.makedirs(PREDICTION_DIR, exist_ok=True)
@@ -42,21 +50,40 @@ async def upload_model_file(model_file: UploadFile = File(...)):
 
 
     
+def get_active_worker_count():
+    inspect: Inspect = celery_app.control.inspect()
+    active_workers = inspect.ping()  # returns dict of worker names -> pong
+    return len(active_workers) if active_workers else 0
+
+def wait_for_workers(expected_count: int, timeout: int = WORKER_READY_TIMEOUT):
+    start = time.time()
+    while time.time() - start < timeout:
+        current = get_active_worker_count()
+        print(f"⏳ Waiting for workers... {current}/{expected_count} ready")
+        if current >= expected_count:
+            print("✅ All workers are ready.")
+            return True
+        time.sleep(WORKER_READY_POLL_INTERVAL)
+    return False
+
+# === Updated Predict Function ===
+
 @app.post("/predict")
 async def predict(file: UploadFile):
     try:
-        # Step 1: Read CSV
         df = pd.read_csv(io.StringIO((await file.read()).decode()))
         num_rows = len(df)
 
-        # Step 2: Compute desired workers (bounded)
+        # Step 1: Compute worker count and trigger scaling
         desired_workers = max(1, min((num_rows // 1000) + 1, 10))
-
-        # Step 3: Write scale request to Redis
         redis_client.set("scale:worker_count", desired_workers)
 
-        # Step 4: Dispatch inference tasks in chunks
-        chunks = [df.iloc[i:i+10].to_dict(orient='records') for i in range(0, num_rows, 10)]
+        # Step 2: Wait for Celery workers to be ready
+        if not wait_for_workers(desired_workers):
+            raise HTTPException(status_code=500, detail="❌ Worker startup timeout. Try again later.")
+
+        # Step 3: Split work and dispatch tasks
+        chunks = [df.iloc[i:i + 10].to_dict(orient='records') for i in range(0, num_rows, 10)]
         tasks = [run_inference.delay(chunk) for chunk in chunks]
 
         results = []
@@ -72,7 +99,7 @@ async def predict(file: UploadFile):
         if len(results) != num_rows:
             raise HTTPException(status_code=500, detail="Mismatch between predictions and input rows.")
 
-        # Step 5: Save predictions to file
+        # Step 4: Save predictions
         output_df = df.copy()
         output_df["prediction"] = results
         file_id = str(uuid4())
@@ -82,7 +109,7 @@ async def predict(file: UploadFile):
         return JSONResponse(content={
             "message": "✅ Predictions complete. Ready to download.",
             "prediction_file": file_id,
-            "predictions": results[:5]  # Preview
+            "predictions": results[:5]  # Optional preview
         })
 
     except Exception as e:
