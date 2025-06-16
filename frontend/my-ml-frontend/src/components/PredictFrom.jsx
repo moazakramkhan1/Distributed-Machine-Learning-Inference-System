@@ -9,7 +9,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogContentText,
-  DialogActions
+  DialogActions,
+  CircularProgress,
 } from "@mui/material";
 import axios from "axios";
 
@@ -18,10 +19,12 @@ export default function PredictForm() {
   const [message, setMessage] = useState("");
   const [predictions, setPredictions] = useState([]);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [fileId, setFileId] = useState(null);
   const [showDownloadPrompt, setShowDownloadPrompt] = useState(false);
 
   const handlePredict = async () => {
+    setLoading(true);
     const formData = new FormData();
     formData.append("file", file);
 
@@ -40,6 +43,7 @@ export default function PredictForm() {
       }
     } finally {
       setSnackbarOpen(true);
+      setLoading(false);
     }
   };
 
@@ -49,7 +53,7 @@ export default function PredictForm() {
         `http://localhost:8000/download-predictions/${fileId}`,
         { responseType: "blob" }
       );
-  
+
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
@@ -57,19 +61,19 @@ export default function PredictForm() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-  
+
       // Delay cleanup to ensure download has started
       setTimeout(async () => {
         await axios.delete(`http://localhost:8000/cleanup/${fileId}`);
       }, 3000);
-  
+
       setShowDownloadPrompt(false);
       setPredictions([]);
     } catch (e) {
       console.error("Download failed:", e);
     }
   };
-  
+
 
   const handleSkip = async () => {
     await axios.delete(`http://localhost:8000/cleanup/${fileId}`);
@@ -82,7 +86,18 @@ export default function PredictForm() {
       <Typography variant="h5" gutterBottom>Make Predictions</Typography>
       <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files[0])} />
       <Button variant="contained" onClick={handlePredict} sx={{ mt: 2 }}>Predict</Button>
-
+      {loading && (
+        <CircularProgress
+          size={24}
+          sx={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            marginTop: "-12px",
+            marginLeft: "-12px",
+          }}
+        />
+      )}
       {predictions?.length > 0 && (
         <Box sx={{ mt: 2 }}>
           <Typography variant="subtitle1">Predictions:</Typography>
