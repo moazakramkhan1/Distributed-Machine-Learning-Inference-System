@@ -21,7 +21,7 @@ const darkTheme = createTheme({
 });
 
 export default function App() {
-  const [training,setTraining] = useState(false)
+  const [training, setTraining] = useState(false)
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
@@ -33,7 +33,7 @@ export default function App() {
         </AppBar>
 
         <Container maxWidth="md" sx={{ mt: 4 }}>
-          <UploadModelForm onTrainingSuccess={() => setTraining(true)}/>
+          <UploadModelForm onTrainingSuccess={() => setTraining(true)} />
           <Box my={4} />
           <TrainForm onTrainingSuccess={() => setTraining(true)} />
           <Box my={4} />
@@ -43,4 +43,5 @@ export default function App() {
     </ThemeProvider>
   );
 }
+
 
